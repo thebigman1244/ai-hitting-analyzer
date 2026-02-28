@@ -9,13 +9,13 @@ app = Flask(__name__)
 UPLOAD_FOLDER = "uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-# ---------- ALWAYS RETURN JSON ----------
+
+# Always return JSON
 @app.errorhandler(Exception)
 def handle_error(e):
     return jsonify({"error": f"{type(e).__name__}: {str(e)}"}), 500
 
 
-# ---------- SERVE FRONTEND ----------
 @app.route("/")
 def index():
     return send_from_directory(".", "index.html")
@@ -26,7 +26,6 @@ def ping():
     return jsonify({"status": "ok"})
 
 
-# ---------- TRACKING ----------
 def track_ball(video_path, contact_time):
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
@@ -45,6 +44,7 @@ def track_ball(video_path, contact_time):
         raise ValueError("Contact time too late in clip.")
 
     cap.set(cv2.CAP_PROP_POS_FRAMES, contact_frame)
+
     ok, prev = cap.read()
     if not ok:
         cap.release()
@@ -54,7 +54,7 @@ def track_ball(video_path, contact_time):
     prev = cv2.resize(prev, None, fx=scale, fy=scale)
     prev_gray = cv2.cvtColor(prev, cv2.COLOR_BGR2GRAY)
 
-    kernel = np.ones((3,3), np.uint8)
+    kernel = np.ones((3, 3), np.uint8)
     positions = []
     prev_pt = None
 
@@ -80,11 +80,11 @@ def track_ball(video_path, contact_time):
             if not (8 < area < 400):
                 continue
 
-            x,y,w,h = cv2.boundingRect(cnt)
+            x, y, w, h = cv2.boundingRect(cnt)
             if h == 0:
                 continue
 
-            ar = w/float(h)
+            ar = w / float(h)
             if not (0.5 < ar < 1.6):
                 continue
 
@@ -125,17 +125,17 @@ def track_ball(video_path, contact_time):
 
 
 def compute_stats(fps, positions, ft_per_px):
-    x = positions[:,0]
-    y = positions[:,1]
+    x = positions[:, 0]
+    y = positions[:, 1]
 
-    dt = 1.0/fps
+    dt = 1.0 / fps
     speeds = []
 
     for i in range(1, min(5, len(x))):
-        dx_ft = (x[i]-x[i-1])*ft_per_px
-        dy_ft = (y[i]-y[i-1])*ft_per_px
-        vx = dx_ft/dt
-        vy = -dy_ft/dt
+        dx_ft = (x[i] - x[i-1]) * ft_per_px
+        dy_ft = (y[i] - y[i-1]) * ft_per_px
+        vx = dx_ft / dt
+        vy = -dy_ft / dt
         speeds.append(np.sqrt(vx*vx + vy*vy))
 
     speeds.sort()
@@ -145,20 +145,20 @@ def compute_stats(fps, positions, ft_per_px):
     v_fps = max(speeds)
     v_mph = v_fps * 0.681818
 
-    dx0 = (x[1]-x[0])*ft_per_px
-    dy0 = (y[1]-y[0])*ft_per_px
+    dx0 = (x[1] - x[0]) * ft_per_px
+    dy0 = (y[1] - y[0]) * ft_per_px
     angle = np.degrees(np.arctan2(-dy0, abs(dx0)))
 
     g = 32.174
     if angle > 0:
-        air = (v_fps**2)*np.sin(2*np.radians(angle))/g
+        air = (v_fps**2) * np.sin(2*np.radians(angle)) / g
     else:
         air = 0
 
     return {
-        "exit_velocity_mph": round(float(v_mph),2),
-        "launch_angle_deg": round(float(angle),2),
-        "air_distance_ft": round(float(air),1)
+        "exit_velocity_mph": round(float(v_mph), 2),
+        "launch_angle_deg": round(float(angle), 2),
+        "air_distance_ft": round(float(air), 1)
     }
 
 
@@ -172,7 +172,8 @@ def analyze():
         dx = plate_pts[0][0] - plate_pts[1][0]
         dy = plate_pts[0][1] - plate_pts[1][1]
         plate_px = np.sqrt(dx*dx + dy*dy)
-        ft_per_px = (17.0/12.0)/plate_px
+
+        ft_per_px = (17.0/12.0) / plate_px
 
         filename = secure_filename(video.filename)
         path = os.path.join(UPLOAD_FOLDER, filename)
@@ -188,4 +189,5 @@ def analyze():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
