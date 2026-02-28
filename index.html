@@ -1,0 +1,252 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Hitting Analyzer</title>
+  <style>
+    body { font-family: Arial, sans-serif; background:#0f1115; color:#e8e8e8; }
+    .wrap { max-width: 980px; margin: 0 auto; padding: 20px; }
+    h1 { margin: 0 0 12px; font-size: 22px; }
+    .row { display:flex; gap:16px; align-items:flex-start; flex-wrap:wrap; }
+    .card { background:#151923; border:1px solid #242b3a; border-radius:12px; padding:14px; }
+    .left { flex: 1 1 620px; }
+    .right { flex: 1 1 300px; }
+    video, canvas { width:100%; border-radius:10px; background:#000; }
+    button, input { width:100%; }
+    button { padding:10px 12px; border-radius:10px; border:1px solid #2a3244; background:#1b2230; color:#fff; cursor:pointer; }
+    button:disabled { opacity:0.45; cursor:not-allowed; }
+    input { padding:10px 12px; border-radius:10px; border:1px solid #2a3244; background:#0f1115; color:#fff; }
+    .small { font-size:12px; opacity:0.85; line-height:1.4; }
+    .badge { display:inline-block; padding:4px 8px; border-radius:999px; background:#20283a; border:1px solid #2a3244; font-size:12px; margin-right:6px;}
+    .err { color:#ff6b6b; white-space:pre-wrap; }
+    .ok { color:#77dd77; }
+    .results { line-height:1.6; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Hitting Analyzer (Auto-Tracking)</h1>
+
+  <div class="row">
+    <div class="card left">
+      <video id="vid" controls></video>
+      <canvas id="cv"></canvas>
+
+      <div class="small" style="margin-top:8px;">
+        <span class="badge">Plate points: <span id="plateCount">0</span>/2</span>
+        <span class="badge">Time: <span id="timeNow">0.00</span>s</span>
+        <span class="badge">Status: <span id="status">Waiting</span></span>
+      </div>
+
+      <div class="small" style="margin-top:10px;">
+        Workflow:
+        <ol>
+          <li>Upload clip</li>
+          <li>Pause at contact and enter exact contact time (seconds)</li>
+          <li>Click 2 plate points (left + right edge of home plate)</li>
+          <li>Analyze</li>
+        </ol>
+        If tracking fails: nudge contact time ±0.10s.
+      </div>
+    </div>
+
+    <div class="card right">
+      <div style="display:flex; flex-direction:column; gap:10px;">
+        <input type="file" id="file" accept="video/*" />
+        <input type="number" id="contact" step="0.01" placeholder="Contact time (sec) e.g. 5.00" />
+        <button id="jumpBtn" disabled>Jump to contact time</button>
+        <button id="resetPlate" disabled>Reset plate points</button>
+        <button id="analyzeBtn" disabled>Analyze</button>
+
+        <div class="results" id="out"></div>
+        <div class="err" id="err"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const vid = document.getElementById("vid");
+const cv = document.getElementById("cv");
+const ctx = cv.getContext("2d");
+
+const fileInput = document.getElementById("file");
+const contactInput = document.getElementById("contact");
+const jumpBtn = document.getElementById("jumpBtn");
+const analyzeBtn = document.getElementById("analyzeBtn");
+const resetPlateBtn = document.getElementById("resetPlate");
+
+const plateCountEl = document.getElementById("plateCount");
+const timeNowEl = document.getElementById("timeNow");
+const statusEl = document.getElementById("status");
+const out = document.getElementById("out");
+const err = document.getElementById("err");
+
+let platePts = [];
+
+function setStatus(s){ statusEl.textContent = s; }
+
+function resizeCanvasToVideo() {
+  cv.width = vid.videoWidth || 800;
+  cv.height = vid.videoHeight || 450;
+  redraw();
+}
+
+function redraw() {
+  if (vid.readyState >= 2) ctx.drawImage(vid, 0, 0, cv.width, cv.height);
+
+  for (let i=0;i<platePts.length;i++){
+    const [x,y] = platePts[i];
+    ctx.strokeStyle = "#6CFF6C";
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(x,y,8,0,Math.PI*2); ctx.stroke();
+  }
+  if (platePts.length === 2){
+    ctx.strokeStyle = "#6CFF6C";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(platePts[0][0], platePts[0][1]);
+    ctx.lineTo(platePts[1][0], platePts[1][1]);
+    ctx.stroke();
+  }
+}
+
+function updateUI() {
+  plateCountEl.textContent = platePts.length;
+  jumpBtn.disabled = !(fileInput.files.length === 1);
+  resetPlateBtn.disabled = !(fileInput.files.length === 1);
+
+  const c = contactInput.value.trim();
+  const contactOk = c !== "" && Number.isFinite(Number(c)) && Number(c) >= 0;
+  analyzeBtn.disabled = !(fileInput.files.length === 1 && platePts.length === 2 && contactOk);
+}
+
+fileInput.addEventListener("change", () => {
+  out.textContent = "";
+  err.textContent = "";
+  platePts = [];
+  setStatus("Video loaded?");
+  const f = fileInput.files[0];
+  if (!f) return;
+  vid.src = URL.createObjectURL(f);
+  vid.load();
+  updateUI();
+});
+
+vid.addEventListener("loadedmetadata", () => {
+  resizeCanvasToVideo();
+  setStatus("Ready");
+  updateUI();
+});
+
+vid.addEventListener("timeupdate", () => {
+  timeNowEl.textContent = vid.currentTime.toFixed(2);
+});
+
+contactInput.addEventListener("input", updateUI);
+
+jumpBtn.addEventListener("click", () => {
+  err.textContent = "";
+  const v = contactInput.value.trim();
+  if (v === "" || !Number.isFinite(Number(v)) || Number(v) < 0) {
+    err.textContent = "Enter a valid contact time first.";
+    return;
+  }
+  vid.currentTime = Number(v);
+  vid.pause();
+  setTimeout(redraw, 30);
+});
+
+resetPlateBtn.addEventListener("click", () => {
+  platePts = [];
+  out.textContent = "";
+  err.textContent = "";
+  redraw();
+  updateUI();
+});
+
+cv.addEventListener("click", (e) => {
+  if (fileInput.files.length !== 1) return;
+
+  const rect = cv.getBoundingClientRect();
+  const x = (e.clientX - rect.left) * (cv.width / rect.width);
+  const y = (e.clientY - rect.top) * (cv.height / rect.height);
+
+  err.textContent = "";
+
+  if (platePts.length >= 2) {
+    err.textContent = "Plate already set. Hit Reset plate points to redo.";
+    return;
+  }
+  platePts.push([x, y]);
+  redraw();
+  updateUI();
+});
+
+async function fetchJsonOrText(url, options) {
+  const res = await fetch(url, options);
+  const text = await res.text();
+
+  // Try parse JSON
+  try {
+    const data = JSON.parse(text);
+    return { ok: res.ok, status: res.status, data, raw: text };
+  } catch {
+    // Not JSON (or server bug). Return raw text for debugging.
+    return { ok: false, status: res.status, data: null, raw: text };
+  }
+}
+
+analyzeBtn.addEventListener("click", async () => {
+  err.textContent = "";
+  out.textContent = "";
+  setStatus("Analyzing...");
+
+  const f = fileInput.files[0];
+  const contactVal = contactInput.value.trim();
+
+  const form = new FormData();
+  form.append("video", f);
+  form.append("plate", JSON.stringify(platePts));
+  form.append("contact", contactVal);
+
+  analyzeBtn.disabled = true;
+  out.textContent = "Working...";
+
+  const resp = await fetchJsonOrText("/analyze", { method:"POST", body: form });
+
+  try {
+    if (!resp.ok) {
+      if (resp.data && resp.data.error) throw new Error(resp.data.error);
+      throw new Error("Server returned non-JSON response:\n\n" + resp.raw.slice(0, 1000));
+    }
+
+    const data = resp.data;
+    const warn = data.warning ? `<div class="err">${data.warning}</div>` : "";
+
+    out.innerHTML =
+      `<div class="ok"><b>Results</b></div>` +
+      `<div>Exit Velo: <b>${data.exit_velocity_mph}</b> mph</div>` +
+      `<div>Launch Angle: <b>${data.launch_angle_deg}</b>°</div>` +
+      `<div>Air Distance: <b>${data.air_distance_ft}</b> ft</div>` +
+      `<div class="small">FPS: ${data.fps} | Scale: ${data.scale_ft_per_px} ft/px</div>` +
+      `<div class="small">Raw pts: ${data.raw_points} | Clean pts: ${data.clean_points}</div>` +
+      `<div class="small">Early speed samples (mph): ${data.early_speeds_mph.join(", ")}</div>` +
+      `${warn}` +
+      `<div class="small">${data.note}</div>`;
+
+    setStatus("Done");
+  } catch (e) {
+    out.textContent = "";
+    err.textContent = String(e.message || e);
+    setStatus("Error");
+  } finally {
+    analyzeBtn.disabled = false;
+    updateUI();
+  }
+});
+
+updateUI();
+</script>
+</body>
+</html>
